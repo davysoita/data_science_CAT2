@@ -1,0 +1,160 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+import shap  # For Explainable AI
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 1. Data Loading and Preprocessing
+
+def load_and_preprocess_data(enrollment_file, academic_file, demographic_file):
+    """Loads and preprocesses student data."""
+
+    enrollment_data = pd.read_csv(enrollment_file)
+    academic_data = pd.read_csv(academic_file)
+    demographic_data = pd.read_csv(demographic_file)
+
+    # Merge dataframes
+    merged_data = pd.merge(enrollment_data, academic_data, on='student_id', how='left')
+    merged_data = pd.merge(merged_data, demographic_data, on='student_id', how='left')
+
+    # Handle missing values
+    numerical_features = merged_data.select_dtypes(include=['number']).columns
+    categorical_features = merged_data.select_dtypes(include=['object']).columns
+
+    numerical_transformer = SimpleImputer(strategy='median')
+    categorical_transformer = OneHotEncoder(handle_unknown='ignore')
+
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('num', numerical_transformer, numerical_features),
+            ('cat', categorical_transformer, categorical_features)
+        ])
+
+    processed_data = preprocessor.fit_transform(merged_data)
+    processed_df = pd.DataFrame(processed_data, columns=preprocessor.get_feature_names_out())
+
+    return processed_df, merged_data['enrolled'], merged_data['graduated'] # assuming these are in the original data.
+
+# 2. Model Training and Evaluation (Enrollment Prediction)
+
+def train_and_evaluate_enrollment(features, target_enrollment):
+    """Trains and evaluates a model for enrollment prediction."""
+
+    X_train, X_test, y_train, y_test = train_test_split(features, target_enrollment, test_size=0.2, random_state=42)
+
+    # Model Selection (Example: Gradient Boosting)
+    model = GradientBoostingClassifier(random_state=42)
+
+    # Hyperparameter Tuning (Example)
+    param_grid = {
+        'n_estimators': [100, 200, 300],
+        'learning_rate': [0.01, 0.1, 0.2]
+    }
+    grid_search = GridSearchCV(model, param_grid, cv=3, scoring='roc_auc')
+    grid_search.fit(X_train, y_train)
+    best_model = grid_search.best_estimator_
+
+    # Evaluation
+    y_pred = best_model.predict(X_test)
+    y_prob = best_model.predict_proba(X_test)[:, 1]
+
+    print("Enrollment Prediction Results:")
+    print("Accuracy:", accuracy_score(y_test, y_pred))
+    print("AUC-ROC:", roc_auc_score(y_test, y_prob))
+    print(classification_report(y_test, y_pred))
+
+    return best_model, X_test
+
+# 3. Model Training and Evaluation (Graduation Support Prediction)
+
+def train_and_evaluate_graduation(features, target_graduation):
+    """Trains and evaluates a model for graduation support prediction."""
+
+    X_train, X_test, y_train, y_test = train_test_split(features, target_graduation, test_size=0.2, random_state=42)
+
+    # Model Selection (Example: Random Forest)
+    model = RandomForestClassifier(random_state=42)
+
+    # Hyperparameter Tuning
+    param_grid = {
+        'n_estimators': [100, 200],
+        'max_depth': [None, 10, 20]
+    }
+    grid_search = GridSearchCV(model, param_grid, cv=3, scoring='roc_auc')
+    grid_search.fit(X_train, y_train)
+    best_model = grid_search.best_estimator_
+
+    y_pred = best_model.predict(X_test)
+    y_prob = best_model.predict_proba(X_test)[:, 1]
+
+    print("\nGraduation Support Prediction Results:")
+    print("Accuracy:", accuracy_score(y_test, y_pred))
+    print("AUC-ROC:", roc_auc_score(y_test, y_prob))
+    print(classification_report(y_test, y_pred))
+
+    return best_model, X_test
+
+# 4. Feature Importance and Explainability
+
+def explain_model(model, features, X_test):
+    """Explains the model's predictions using SHAP."""
+    explainer = shap.TreeExplainer(model) # TreeExplainer works well with tree based models.
+    shap_values = explainer.shap_values(X_test)
+    shap.summary_plot(shap_values, X_test, plot_type="bar") # Feature importance visualization
+    shap.summary_plot(shap_values, X_test) # Overall SHAP plot.
+    return shap_values
+
+# 5. Privacy Considerations (Illustrative - not full implementation)
+
+def anonymize_data(data):
+    """Illustrative example of data anonymization."""
+    # Replace student IDs with pseudonyms
+    data['student_id'] = range(len(data))
+    # Remove or generalize sensitive attributes
+    if 'address' in data.columns:
+        data = data.drop('address', axis=1) # example.
+    if 'date_of_birth' in data.columns:
+        data['age'] = pd.to_datetime('today').year - pd.to_datetime(data['date_of_birth']).dt.year
+        data = data.drop('date_of_birth', axis=1)
+    return data
+
+# 6. Communication and Actionable Insights
+
+def generate_report(model, features, X_test, shap_values, output_file="student_prediction_report.html"):
+    """Generates an HTML report with model results and insights."""
+    # This function is a placeholder. You'd need to create a more comprehensive report.
+    with open(output_file, 'w') as f:
+        f.write("<h1>Student Prediction Report</h1>\n")
+        f.write("<h2>Model Performance</h2>\n")
+        # Include metrics, feature importance, and example predictions
+        f.write("<h2>Feature Importance</h2>\n")
+        # Add shap plots to the html.
+        f.write("<h2>Example Predictions</h2>\n")
+        # Add example predictions and explanations.
+        f.write("<h2>Recommendations</h2>\n")
+        # Add actionable insights.
+
+# Main Execution
+
+enrollment_file = 'enrollment_data.csv'
+academic_file = 'academic_data.csv'
+demographic_file = 'demographic_data.csv'
+
+processed_features, target_enrollment, target_graduation = load_and_preprocess_data(enrollment_file, academic_file, demographic_file)
+
+#Privacy handling.
+anonymized_data = anonymize_data(pd.read_csv(enrollment_file)) # Example.
+
+enrollment_model, enrollment_X_test = train_and_evaluate_enrollment(processed_features, target_enrollment)
+graduation_model, graduation_X_test = train_and_evaluate_graduation(processed_features, target_graduation)
+
+enrollment_shap_values = explain_model(enrollment_model, processed_features, enrollment_X_test)
+graduation_shap_values = explain_model(graduation_model, processed_features, graduation_X_test)
+
+generate_report(enrollment_model, processed_features, enrollment_X_test, enrollment_shap_values)
